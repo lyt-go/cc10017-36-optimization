@@ -43,6 +43,8 @@ class Store:
             "quality_inspection_results", "materialized_refresh_log",
             "sink_dispatch_queue", "compact_results",
             "ttl_applied_log", "realtime_metric_results",
+            "metric_increment_results", "metric_increment_cursors",
+            "metric_source_versions", "ttl_delivery_log",
         ]
         artifact_counts = {n: len(self.rows(n)) for n in artifact_names}
         total_artifacts = sum(artifact_counts.values())

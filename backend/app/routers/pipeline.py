@@ -107,6 +107,61 @@ def compute_metrics(metric_id: int) -> ActionResult:
     return ActionResult(ok=True, message="实时指标计算完成", entry=result)
 
 
+@router.post("/metrics/{metric_id}/ingest")
+def ingest_metric_versions(metric_id: int, payload: dict | None = None) -> ActionResult:
+    """接入订单吞吐指标短窗口源版本。"""
+    count = int((payload or {}).get("count", 1))
+    result = pipeline_engine.ingest_metric_versions(metric_id, max(1, count))
+    if not result.get("ok"):
+        return ActionResult(ok=False, message=result.get("error", "未知错误"))
+    return ActionResult(ok=True, message=f"已接入 {result.get('ingested', 0)} 个源版本", entry=result)
+
+
+@router.post("/metrics/{metric_id}/increment/refresh")
+def refresh_metric_increment(metric_id: int) -> ActionResult:
+    """增量刷新指标结果表：只处理已消费版本之后的新窗口。"""
+    result = pipeline_engine.refresh_metric_increment(metric_id)
+    if not result.get("ok"):
+        return ActionResult(ok=False, message=result.get("error", "未知错误"))
+    return ActionResult(ok=True, message=result.get("message", "增量刷新完成"), entry=result)
+
+
+@router.post("/metrics/{metric_id}/increment/interrupt")
+def interrupt_metric_increment(metric_id: int, payload: dict | None = None) -> ActionResult:
+    """模拟写入中断：部分窗口落表、游标不推进。"""
+    fail_after = int((payload or {}).get("fail_after", 1))
+    result = pipeline_engine.refresh_metric_increment(metric_id, fail_after=max(1, fail_after))
+    return ActionResult(
+        ok=result.get("ok", False),
+        message=result.get("message", "写入中断已模拟"),
+        entry=result,
+    )
+
+
+@router.post("/metrics/{metric_id}/increment/recover")
+def recover_metric_increment(metric_id: int) -> ActionResult:
+    """中断恢复：补齐未消费版本，同一窗口不重复累计。"""
+    result = pipeline_engine.recover_metric_increment(metric_id)
+    if not result.get("ok"):
+        return ActionResult(ok=False, message=result.get("error", "未知错误"))
+    return ActionResult(ok=True, message=result.get("message", "中断恢复完成"), entry=result)
+
+
+@router.post("/metrics/{metric_id}/increment/deliver")
+def deliver_metric_increment(metric_id: int) -> ActionResult:
+    """跨模块交付：实时指标增量结果表 → 数据生命周期。"""
+    result = pipeline_engine.deliver_metric_increment(metric_id)
+    if not result.get("ok"):
+        return ActionResult(ok=False, message=result.get("error", "未知错误"))
+    return ActionResult(ok=True, message=result.get("message", "已交付数据生命周期"), entry=result)
+
+
+@router.get("/metrics/retention")
+def metric_retention(metric_id: int | None = None) -> dict:
+    """数据生命周期口径：核对指标来源主题的可消费保留期。"""
+    return pipeline_engine.metric_retention_check(metric_id)
+
+
 @router.get("/lineage-graph")
 def get_full_lineage_graph() -> dict:
     """获取全平台数据血缘图。"""

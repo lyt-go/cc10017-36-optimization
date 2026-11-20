@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
+from app.services.metric_increment import metric_increment_service
 from app.services.ttl_policy import TtlPolicyService
 
 router = APIRouter(prefix="/api/ttl_policy", tags=["数据生命周期"])
@@ -63,6 +64,18 @@ def export_entries(
     return StreamingResponse(
         iter([output.getvalue()]), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="ttl_policy.csv"'})
+
+
+@router.get("/retention/metrics")
+def metric_retention(metric_id: int | None = Query(default=None)) -> dict:
+    """接入实时指标增量结果表：核对来源主题是否仍处于可消费保留期。"""
+    return metric_increment_service.retention_check(metric_id)
+
+
+@router.get("/deliveries")
+def metric_deliveries() -> dict:
+    """查看实时指标交付给数据生命周期的结果表版本记录。"""
+    return {"items": metric_increment_service.list_deliveries()}
 
 
 @router.get("/{entry_id}", response_model=dict)

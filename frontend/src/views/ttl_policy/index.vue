@@ -72,6 +72,42 @@
       </form>
     </div>
 
+    <!-- 接入实时指标增量结果表：核对来源主题的可消费保留期 -->
+    <div class="retention-panel">
+      <div class="page-actions">
+        <h3 style="margin:0">指标来源保留期核对</h3>
+        <button class="btn" type="button" data-testid="retention-check" @click="loadRetention">核对来源</button>
+      </div>
+      <p class="page-desc">数据生命周期模块接入实时指标交付的增量结果表，按主题保留时长判断哪些主题仍处于可消费保留期。</p>
+      <div class="stat-row">
+        <article class="stat-card"><span class="stat-label">来源主题数</span><strong class="stat-value">{{ retention.total_topics ?? 0 }}</strong></article>
+        <article class="stat-card"><span class="stat-label">可消费</span><strong class="stat-value">{{ retention.consumable_topics ?? 0 }}</strong></article>
+        <article class="stat-card"><span class="stat-label">已超期</span><strong class="stat-value">{{ retention.expired_topics ?? 0 }}</strong></article>
+        <article class="stat-card"><span class="stat-label">待核对</span><strong class="stat-value">{{ retention.pending_topics ?? 0 }}</strong></article>
+      </div>
+      <table class="data-table" v-if="retentionItems.length">
+        <thead>
+          <tr><th>来源主题</th><th>主题名称</th><th>保留时长</th><th>水位检查时间</th><th>窗口数</th><th>是否可消费</th><th>核对说明</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in retentionItems" :key="item.topic_code">
+            <td>{{ item.topic_code }}</td>
+            <td>{{ item.topic_name ?? '—' }}</td>
+            <td>{{ item.retention ?? '—' }}</td>
+            <td>{{ item.watermark_check_time ?? '—' }}</td>
+            <td>{{ item.window_count }}</td>
+            <td>
+              <span v-if="item.consumable === true" class="trend-up">可消费</span>
+              <span v-else-if="item.consumable === false" class="trend-down">已超期</span>
+              <span v-else>待核对</span>
+            </td>
+            <td>{{ item.reason }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="retentionMessage" class="error-text">{{ retentionMessage }}</p>
+    </div>
+
     <footer class="page-foot">
       <span>共 {{ total }} 条数据生命周期记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
@@ -184,5 +220,50 @@ async function reload() {
   }
 }
 
-onMounted(reload)
+// ── 指标增量结果表来源核对 ──────────────────────────────
+type RetentionItem = {
+  topic_code: string
+  topic_name: string | null
+  retention: string | null
+  watermark_check_time: string | null
+  window_count: number
+  consumable: boolean | null
+  reason: string
+}
+const retentionItems = ref<RetentionItem[]>([])
+const retention = ref<Record<string, number>>({})
+const retentionMessage = ref('')
+
+async function loadRetention() {
+  retentionMessage.value = ''
+  try {
+    const response = await request(`${ENDPOINT}/retention/metrics`)
+    if (!response.ok) throw new Error('指标来源保留期核对失败')
+    const payload = await response.json()
+    retentionItems.value = payload.items ?? []
+    retention.value = {
+      total_topics: payload.total_topics ?? 0,
+      consumable_topics: payload.consumable_topics ?? 0,
+      expired_topics: payload.expired_topics ?? 0,
+      pending_topics: payload.pending_topics ?? 0,
+    }
+  } catch (error) {
+    retentionMessage.value = error instanceof Error ? error.message : '指标来源保留期核对失败'
+  }
+}
+
+onMounted(() => {
+  reload()
+  loadRetention()
+})
 </script>
+<style scoped>
+.retention-panel {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--border, #e4e7ec);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+}
+.retention-panel .stat-row { margin: 12px 0; }
+</style>

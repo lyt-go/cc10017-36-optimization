@@ -15,6 +15,10 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from app.store import store
+from app.services.metric_increment import (
+    IncrementWriteInterrupted,
+    metric_increment_service,
+)
 
 
 class PipelineEngine:
@@ -452,6 +456,33 @@ class PipelineEngine:
 
         return {"ok": True, "result": result}
 
+    # ───────────────────────────────────────
+    # 实时指标链：增量结果表（增量计算/中断恢复/跨模块交付）
+    # ───────────────────────────────────────
+
+    def ingest_metric_versions(self, metric_id: int, count: int = 1) -> dict[str, Any]:
+        """接入订单吞吐指标的短窗口源版本（新版本只取数一次，不重扫历史）。"""
+        return metric_increment_service.ingest_source_versions(metric_id, count)
+
+    def refresh_metric_increment(self, metric_id: int, *, fail_after: int | None = None) -> dict[str, Any]:
+        """增量刷新：从上次已消费版本之后连续推进，写入新增聚合值。"""
+        try:
+            return metric_increment_service.refresh_increment(metric_id, fail_after=fail_after)
+        except IncrementWriteInterrupted as exc:
+            return exc.partial
+
+    def recover_metric_increment(self, metric_id: int) -> dict[str, Any]:
+        """中断恢复：补齐未消费版本，已写窗口去重跳过。"""
+        return metric_increment_service.recover_increment(metric_id)
+
+    def deliver_metric_increment(self, metric_id: int) -> dict[str, Any]:
+        """跨模块交付：实时指标 → 数据生命周期，保留结果表当前版本。"""
+        return metric_increment_service.deliver_to_lifecycle(metric_id)
+
+    def metric_retention_check(self, metric_id: int | None = None) -> dict[str, Any]:
+        """数据生命周期口径：核对来源主题是否仍在可消费保留期。"""
+        return metric_increment_service.retention_check(metric_id)
+
     # ───────────────────────────────
     # 链路血缘与依赖图
     # ───────────────────────────────
@@ -586,6 +617,10 @@ class PipelineEngine:
             "compact_results": len(store.rows("compact_results")),
             "ttl_applied_log": len(store.rows("ttl_applied_log")),
             "realtime_metric_results": len(store.rows("realtime_metric_results")),
+            "metric_increment_results": len(store.rows("metric_increment_results")),
+            "metric_increment_cursors": len(store.rows("metric_increment_cursors")),
+            "metric_source_versions": len(store.rows("metric_source_versions")),
+            "ttl_delivery_log": len(store.rows("ttl_delivery_log")),
         }
 
         return {
